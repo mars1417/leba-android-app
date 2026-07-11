@@ -36,7 +36,10 @@ public class MainActivity extends AppCompatActivity {
     private static final String GP_URL = "https://mars1417.github.io/lebacenter/";
     private static final String CHANNEL_ID = "leba_notifications";
     private static final int NOTIFICATION_PERMISSION_CODE = 1001;
-    private static final String GITHUB_API = "https://api.github.com/repos/mars1417/leba-android-app/releases/latest";
+    // 自动更新：通过本地Flask服务器（cpolar穿透，国内可访问）
+    private static final String UPDATE_HOST = "https://3d27347f.r23.cpolar.top";
+    private static final String CHECK_URL = UPDATE_HOST + "/api/apk/check";
+    private static final String DOWNLOAD_URL = UPDATE_HOST + "/api/apk/download";
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -101,22 +104,19 @@ public class MainActivity extends AppCompatActivity {
                 int currentVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
                 Log.d("AutoUpdate", "Current versionCode: " + currentVer);
 
-                // 请求GitHub API
-                URL url = new URL(GITHUB_API);
+                // 请求本地服务器版本信息
+                URL url = new URL(CHECK_URL);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestProperty("Accept", "application/vnd.github+json");
-                conn.setRequestProperty("User-Agent", "leba-android");
                 conn.setConnectTimeout(8000);
                 conn.setReadTimeout(8000);
 
                 int code = conn.getResponseCode();
                 if (code != 200) {
-                    Log.d("AutoUpdate", "GitHub API returned " + code);
+                    Log.d("AutoUpdate", "Server returned " + code);
                     conn.disconnect();
                     return;
                 }
 
-                // 解析JSON
                 StringBuilder sb = new StringBuilder();
                 try (InputStream is = conn.getInputStream()) {
                     byte[] buf = new byte[4096];
@@ -126,30 +126,19 @@ public class MainActivity extends AppCompatActivity {
                 conn.disconnect();
 
                 String json = sb.toString();
-                String tagName = extractJsonString(json, "tag_name");
-                String downloadUrl = extractDownloadUrl(json);
+                int remoteVer = extractInt(json, "version_code");
+                String versionName = extractString(json, "version_name");
 
-                if (tagName == null || downloadUrl == null) {
-                    Log.d("AutoUpdate", "Failed to parse GitHub response");
+                if (remoteVer == 0) {
+                    Log.d("AutoUpdate", "Failed to parse version");
                     return;
                 }
 
-                // 从tag名提取版本号 (v12 -> 12)
-                int remoteVer = 0;
-                try {
-                    remoteVer = Integer.parseInt(tagName.replaceAll("[^0-9]", ""));
-                } catch (NumberFormatException e) {
-                    Log.d("AutoUpdate", "Invalid tag: " + tagName);
-                    return;
-                }
+                Log.d("AutoUpdate", "Remote: " + remoteVer + " (" + versionName + ") Current: " + currentVer);
 
-                Log.d("AutoUpdate", "Remote: " + remoteVer + " Current: " + currentVer);
-
-                // 有新版 → 弹窗提示
                 if (remoteVer > currentVer) {
-                    String finalTag = tagName;
-                    String finalUrl = downloadUrl;
-                    mainHandler.post(() -> showUpdateDialog(finalTag, finalUrl));
+                    String finalTag = versionName != null ? versionName : "v" + remoteVer;
+                    mainHandler.post(() -> showUpdateDialog(finalTag));
                 }
             } catch (Exception e) {
                 Log.d("AutoUpdate", "Check failed: " + e.getMessage());
@@ -157,45 +146,39 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void showUpdateDialog(String tagName, String downloadUrl) {
+    private void showUpdateDialog(String tagName) {
         new AlertDialog.Builder(this)
             .setTitle("发现新版本 " + tagName)
             .setMessage("是否下载更新？\n更新后重启即可使用最新版本。")
-            .setPositiveButton("立即更新", (dialog, which) -> downloadAndInstall(downloadUrl))
+            .setPositiveButton("立即更新", (dialog, which) -> downloadAndInstall())
             .setNegativeButton("稍后再说", null)
             .show();
     }
 
-    private void downloadAndInstall(String downloadUrl) {
+    private void downloadAndInstall() {
         executor.execute(() -> {
             try {
-                // 下载APK到缓存目录
                 File cacheDir = new File(getCacheDir(), "updates");
                 cacheDir.mkdirs();
                 File apkFile = new File(cacheDir, "leba-center.apk");
                 if (apkFile.exists()) apkFile.delete();
 
-                URL url = new URL(downloadUrl);
+                URL url = new URL(DOWNLOAD_URL);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(15000);
-                conn.setReadTimeout(30000);
+                conn.setReadTimeout(60000);
                 conn.setInstanceFollowRedirects(true);
 
                 try (InputStream is = conn.getInputStream();
                      FileOutputStream os = new FileOutputStream(apkFile)) {
                     byte[] buf = new byte[8192];
                     int n;
-                    long total = 0;
-                    while ((n = is.read(buf)) != -1) {
-                        os.write(buf, 0, n);
-                        total += n;
-                    }
+                    while ((n = is.read(buf)) != -1) os.write(buf, 0, n);
                 }
                 conn.disconnect();
 
                 Log.d("AutoUpdate", "Downloaded: " + apkFile.length() + " bytes");
 
-                // 触发安装
                 mainHandler.post(() -> installApk(apkFile));
             } catch (Exception e) {
                 Log.d("AutoUpdate", "Download failed: " + e.getMessage());
@@ -222,23 +205,26 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /* 极简JSON解析（无Gson依赖） */
-    private String extractJsonString(String json, String key) {
+    private int extractInt(String json, String key) {
+        String search = "\"" + key + "\":";
+        int start = json.indexOf(search);
+        if (start == -1) return 0;
+        start += search.length();
+        // 跳过空格
+        while (start < json.length() && json.charAt(start) == ' ') start++;
+        // 数字直到逗号或括号
+        int end = start;
+        while (end < json.length() && (Character.isDigit(json.charAt(end)) || json.charAt(end) == '-')) end++;
+        try { return Integer.parseInt(json.substring(start, end)); } catch (NumberFormatException e) { return 0; }
+    }
+
+    private String extractString(String json, String key) {
         String search = "\"" + key + "\":\"";
         int start = json.indexOf(search);
         if (start == -1) return null;
         start += search.length();
         int end = json.indexOf("\"", start);
         return end == -1 ? null : json.substring(start, end);
-    }
-
-    private String extractDownloadUrl(String json) {
-        // 找第一个browser_download_url
-        String search = "\"browser_download_url\":\"";
-        int start = json.indexOf(search);
-        if (start == -1) return null;
-        start += search.length();
-        int end = json.indexOf("\"", start);
-        return end == -1 ? null : json.substring(start, end).replace("\\/", "/");
     }
 
     /* ===== 通知系统 ===== */
