@@ -96,37 +96,39 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /* 注入JS，桥接页面通知到Android原生 */
+    /* 注入JS：独立轮询通知API，直接调Android桥（不依赖notifManager） */
     private void injectNotifBridgeJS(WebView view) {
         String js =
             "(function(){" +
-            "  if(!window.notifManager) return;" +
-            "  /* 覆盖notifySW: 通知→Android系统通知栏 */" +
-            "  var _n=notifManager.notifySW;" +
-            "  notifManager.notifySW=function(d){" +
-            "    try{_n(d)}catch(e){}" +
-            "    try{AndroidNotif.showNotification(d.title||'',d.body||'',d.id||0)}catch(e){}" +
-            "  };" +
-            "  /* 覆盖updateBadge: 角标→桌面图标 */" +
-            "  var _b=notifManager.updateBadge;" +
-            "  notifManager.updateBadge=function(){" +
-            "    try{_b()}catch(e){}" +
+            "  if(window.__notifBridgeDone) return;" +
+            "  window.__notifBridgeDone=true;" +
+            "  var _lastId=null;" +
+            "  /* 独立轮询（15s一次），不管notifManager在不在 */" +
+            "  setInterval(function(){" +
+            "    try{" +
+            "      fetch('/api/notifications/poll',{cache:'no-store'})" +
+            "      .then(function(r){return r.json()})" +
+            "      .then(function(d){" +
+            "        if(d&&d.id&&d.id!=_lastId&&window.AndroidNotif){" +
+            "          _lastId=d.id;" +
+            "          AndroidNotif.showNotification(d.title||'',d.body||'',d.id);" +
+            "        }" +
+            "      }).catch(function(){});" +
+            "    }catch(e){}" +
+            "  },15000);" +
+            "  /* 角标轮询（30s一次） */" +
+            "  setInterval(function(){" +
             "    try{" +
             "      fetch('/api/notifications/unread-count',{cache:'no-store'})" +
             "      .then(function(r){return r.json()})" +
             "      .then(function(d){" +
-            "        if(d&&typeof d.count!=='undefined'&&d.count>0)" +
-            "          AndroidNotif.updateBadge(d.count);" +
-            "        else AndroidNotif.clearBadge();" +
-            "      }).catch(function(){})" +
+            "        if(d&&typeof d.count!=='undefined'&&window.AndroidNotif){" +
+            "          if(d.count>0) AndroidNotif.updateBadge(d.count);" +
+            "          else AndroidNotif.clearBadge();" +
+            "        }" +
+            "      }).catch(function(){});" +
             "    }catch(e){}" +
-            "  };" +
-            "  /* 覆盖clearBadge */" +
-            "  var _c=notifManager.clearBadge;" +
-            "  notifManager.clearBadge=function(){" +
-            "    try{_c()}catch(e){}" +
-            "    try{AndroidNotif.clearBadge()}catch(e){}" +
-            "  };" +
+            "  },30000);" +
             "})();";
         view.evaluateJavascript(js, null);
         Log.d("NotifBridge", "JS injected into: " + view.getUrl());
