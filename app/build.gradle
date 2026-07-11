@@ -20,6 +20,8 @@ android {
             storePassword System.getenv('KEYSTORE_PASSWORD') ?: 'leba123'
             keyAlias System.getenv('KEY_ALIAS') ?: 'leba'
             keyPassword System.getenv('KEY_PASSWORD') ?: 'leba123'
+            enableV1Signing true
+            enableV2Signing true
         }
     }
 
