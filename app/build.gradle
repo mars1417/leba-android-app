@@ -10,8 +10,8 @@ android {
         applicationId 'com.leba.app'
         minSdk 24
         targetSdk 34
-        versionCode 12
-        versionName 'v12'
+        versionCode 14
+        versionName 'v14'
     }
 
     signingConfigs {
