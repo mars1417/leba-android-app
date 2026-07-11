@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -18,6 +19,7 @@ import androidx.core.content.ContextCompat;
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
+    private NotificationBridge notifBridge;
     private static final String GP_URL = "https://mars1417.github.io/lebacenter/";
     private static final String CHANNEL_ID = "leba_notifications";
     private static final int NOTIFICATION_PERMISSION_CODE = 1001;
@@ -32,6 +34,11 @@ public class MainActivity extends AppCompatActivity {
 
         webView = findViewById(R.id.webview);
         setupWebView();
+
+        // 注册JS桥接：页面JS→Android系统通知
+        notifBridge = new NotificationBridge(this);
+        webView.addJavascriptInterface(notifBridge, "AndroidNotif");
+
         webView.loadUrl(GP_URL);
     }
 
@@ -46,6 +53,12 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return false; // 所有链接在WebView内打开
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                injectNotifBridgeJS(view); // 注入JS覆盖通知方法
             }
         });
 
@@ -81,6 +94,42 @@ public class MainActivity extends AppCompatActivity {
                 );
             }
         }
+    }
+
+    /* 注入JS，桥接页面通知到Android原生 */
+    private void injectNotifBridgeJS(WebView view) {
+        String js =
+            "(function(){" +
+            "  if(!window.notifManager) return;" +
+            "  /* 覆盖notifySW: 通知→Android系统通知栏 */" +
+            "  var _n=notifManager.notifySW;" +
+            "  notifManager.notifySW=function(d){" +
+            "    try{_n(d)}catch(e){}" +
+            "    try{AndroidNotif.showNotification(d.title||'',d.body||'',d.id||0)}catch(e){}" +
+            "  };" +
+            "  /* 覆盖updateBadge: 角标→桌面图标 */" +
+            "  var _b=notifManager.updateBadge;" +
+            "  notifManager.updateBadge=function(){" +
+            "    try{_b()}catch(e){}" +
+            "    try{" +
+            "      fetch('/api/notifications/unread-count',{cache:'no-store'})" +
+            "      .then(function(r){return r.json()})" +
+            "      .then(function(d){" +
+            "        if(d&&typeof d.count!=='undefined'&&d.count>0)" +
+            "          AndroidNotif.updateBadge(d.count);" +
+            "        else AndroidNotif.clearBadge();" +
+            "      }).catch(function(){})" +
+            "    }catch(e){}" +
+            "  };" +
+            "  /* 覆盖clearBadge */" +
+            "  var _c=notifManager.clearBadge;" +
+            "  notifManager.clearBadge=function(){" +
+            "    try{_c()}catch(e){}" +
+            "    try{AndroidNotif.clearBadge()}catch(e){}" +
+            "  };" +
+            "})();";
+        view.evaluateJavascript(js, null);
+        Log.d("NotifBridge", "JS injected into: " + view.getUrl());
     }
 
     @Override
