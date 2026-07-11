@@ -39,7 +39,9 @@ public class MainActivity extends AppCompatActivity {
         notifBridge = new NotificationBridge(this);
         webView.addJavascriptInterface(notifBridge, "AndroidNotif");
 
-        webView.loadUrl(GP_URL);
+        // 清除WebView缓存，确保看到最新GP页面
+        webView.clearCache(true);
+        webView.loadUrl(GP_URL + "?_t=" + System.currentTimeMillis());
     }
 
     private void setupWebView() {
