@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -51,6 +54,7 @@ jobs:
             📱 乐吧公益中心 Android App
 
             版本: v${{ github.run_number }}
+
             四端入口: 机构管理端 · CRM · 家长端 · 课程报名
 
             安装: 下载APK → 手机打开安装 → 允许通知
