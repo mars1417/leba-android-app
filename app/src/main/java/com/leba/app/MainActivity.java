@@ -18,11 +18,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
-import android.widget.LinearLayout;
-import android.widget.ProgressBar;
-import android.widget.TextView;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.NotificationCompat;
+import android.webkit.ValueCallback;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
@@ -50,6 +46,7 @@ public class MainActivity extends AppCompatActivity {
     private AlertDialog progressDialog;
     private ProgressBar progressBar;
     private TextView progressText;
+    private ValueCallback<Uri[]> uploadMessage;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -78,8 +75,8 @@ public class MainActivity extends AppCompatActivity {
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setDomStorageEnabled(true);
         webView.getSettings().setDatabaseEnabled(true);
-        webView.getSettings().setAllowFileAccess(false);
-        webView.getSettings().setAllowContentAccess(false);
+        webView.getSettings().setAllowFileAccess(true);
+        webView.getSettings().setAllowContentAccess(true);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -100,6 +97,22 @@ public class MainActivity extends AppCompatActivity {
                 if (getSupportActionBar() != null) {
                     getSupportActionBar().setTitle(title);
                 }
+            }
+
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback, FileChooserParams params) {
+                if (uploadMessage != null) {
+                    uploadMessage.onReceiveValue(null);
+                }
+                uploadMessage = filePathCallback;
+
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("image/*");
+
+                Intent chooser = Intent.createChooser(intent, "选择照片");
+                startActivityForResult(chooser, 1001);
+                return true;
             }
         });
     }
@@ -355,6 +368,22 @@ public class MainActivity extends AppCompatActivity {
             "})();";
         view.evaluateJavascript(js, null);
         Log.d("NotifBridge", "JS injected into: " + view.getUrl());
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 1001 && uploadMessage != null) {
+            Uri[] results = null;
+            if (resultCode == RESULT_OK && data != null) {
+                Uri uri = data.getData();
+                if (uri != null) {
+                    results = new Uri[]{uri};
+                }
+            }
+            uploadMessage.onReceiveValue(results);
+            uploadMessage = null;
+        }
     }
 
     @Override
