@@ -12,10 +12,15 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Gravity;
+import android.view.ViewGroup;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -42,6 +47,9 @@ public class MainActivity extends AppCompatActivity {
     private static final String DOWNLOAD_URL = UPDATE_HOST + "/api/apk/download";
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private AlertDialog progressDialog;
+    private ProgressBar progressBar;
+    private TextView progressText;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -156,6 +164,30 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void downloadAndInstall() {
+        // 弹出进度条弹窗
+        mainHandler.post(() -> {
+            LinearLayout layout = new LinearLayout(this);
+            layout.setPadding(60, 30, 60, 30);
+            layout.setOrientation(LinearLayout.VERTICAL);
+
+            progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            progressBar.setMax(100);
+            progressBar.setProgress(0);
+            layout.addView(progressBar);
+
+            progressText = new TextView(this);
+            progressText.setText("准备下载...");
+            progressText.setGravity(Gravity.CENTER);
+            progressText.setPadding(0, 16, 0, 0);
+            layout.addView(progressText);
+
+            progressDialog = new AlertDialog.Builder(this)
+                .setTitle("正在下载更新...")
+                .setView(layout)
+                .setCancelable(false)
+                .show();
+        });
+
         executor.execute(() -> {
             try {
                 File cacheDir = new File(getCacheDir(), "updates");
@@ -166,23 +198,53 @@ public class MainActivity extends AppCompatActivity {
                 URL url = new URL(DOWNLOAD_URL);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(15000);
-                conn.setReadTimeout(60000);
+                conn.setReadTimeout(120000);
                 conn.setInstanceFollowRedirects(true);
+                conn.connect();
+
+                int fileLength = conn.getContentLength();
+                final String sizeStr = fileLength > 0
+                    ? String.format("%.1f MB", fileLength / (1024f * 1024f))
+                    : "未知大小";
+                Log.d("AutoUpdate", "Download size: " + fileLength);
 
                 try (InputStream is = conn.getInputStream();
                      FileOutputStream os = new FileOutputStream(apkFile)) {
                     byte[] buf = new byte[8192];
                     int n;
-                    while ((n = is.read(buf)) != -1) os.write(buf, 0, n);
+                    long total = 0;
+                    long lastUpdate = 0;
+                    while ((n = is.read(buf)) != -1) {
+                        os.write(buf, 0, n);
+                        total += n;
+                        // 每200ms更新一次UI，避免频繁刷新
+                        long now = System.currentTimeMillis();
+                        if (fileLength > 0 && now - lastUpdate > 200) {
+                            final int percent = (int) (total * 100 / fileLength);
+                            final long speed = total / Math.max(1, (now - System.currentTimeMillis() + 200));
+                            lastUpdate = now;
+                            mainHandler.post(() -> updateProgress(percent, sizeStr));
+                        }
+                    }
                 }
                 conn.disconnect();
 
-                Log.d("AutoUpdate", "Downloaded: " + apkFile.length() + " bytes");
+                final long finalSize = apkFile.length();
+                Log.d("AutoUpdate", "Downloaded: " + finalSize + " bytes");
 
-                mainHandler.post(() -> installApk(apkFile));
+                mainHandler.post(() -> {
+                    if (progressDialog != null && progressDialog.isShowing()) {
+                        progressDialog.dismiss();
+                    }
+                    // 下载完成后立即安装（签名一致，支持覆盖安装）
+                    installApk(apkFile);
+                });
             } catch (Exception e) {
                 Log.d("AutoUpdate", "Download failed: " + e.getMessage());
                 mainHandler.post(() -> {
+                    if (progressDialog != null && progressDialog.isShowing()) {
+                        progressDialog.dismiss();
+                    }
                     if (!isFinishing()) {
                         new AlertDialog.Builder(this)
                             .setTitle("下载失败")
@@ -193,6 +255,13 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
         });
+    }
+
+    private void updateProgress(int percent, String sizeStr) {
+        if (progressBar != null) progressBar.setProgress(percent);
+        if (progressText != null) {
+            progressText.setText("已下载 " + percent + "%  /  总大小: " + sizeStr);
+        }
     }
 
     private void installApk(File apkFile) {

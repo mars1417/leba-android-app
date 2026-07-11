@@ -24,13 +24,6 @@ jobs:
         with:
           gradle-version: "8.2"
 
-      - name: Generate keystore
-        run: |
-          keytool -genkey -v -keystore keystore.jks -alias leba \
-            -keyalg RSA -keysize 2048 -validity 9125 \
-            -storepass leba123 -keypass leba123 \
-            -dname "CN=leba, OU=leba, O=leba, L=Shanghai, ST=Shanghai, C=CN"
-
       - name: Generate Gradle wrapper
         run: gradle wrapper --gradle-version 8.2
 
@@ -38,9 +31,7 @@ jobs:
         run: ./gradlew assembleRelease
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/keystore.jks
-          KEYSTORE_PASSWORD: leba123
-          KEY_ALIAS: leba
-          KEY_PASSWORD: leba123
+          VERSION_CODE: ${{ github.run_number }}
 
       - name: Rename APK
         run: mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/leba-center.apk

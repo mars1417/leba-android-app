@@ -10,8 +10,8 @@ android {
         applicationId 'com.leba.app'
         minSdk 24
         targetSdk 34
-        versionCode 14
-        versionName 'v14'
+        versionCode System.getenv('VERSION_CODE')?.toInteger() ?: 99
+        versionName "v" + (System.getenv('VERSION_CODE') ?: "99")
     }
 
     signingConfigs {
