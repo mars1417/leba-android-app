@@ -1,9 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.LebaApp" parent="Theme.AppCompat.Light.NoActionBar">
-        <item name="colorPrimary">#4785A8</item>
-        <item name="colorPrimaryDark">#3A7A9E</item>
-        <item name="colorAccent">#6DA8A0</item>
-        <item name="android:statusBarColor">#4785A8</item>
-    </style>
+    <style name="Theme.LebaApp" parent="Theme.AppCompat.Light.NoActionBar" />
 </resources>
