@@ -1,0 +1,39 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.leba.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.leba.app'
+        minSdk 24
+        targetSdk 34
+        versionCode System.getenv('GITHUB_RUN_NUMBER')?.toInteger() ?: 1
+        versionName System.getenv('GITHUB_RUN_NUMBER') ? "1.0.${System.getenv('GITHUB_RUN_NUMBER')}" : "1.0.0"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('KEYSTORE_PATH') ?: "${rootProject.rootDir}/keystore.jks")
+            storePassword System.getenv('KEYSTORE_PASSWORD') ?: 'leba123'
+            keyAlias System.getenv('KEY_ALIAS') ?: 'leba'
+            keyPassword System.getenv('KEY_PASSWORD') ?: 'leba123'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            signingConfig signingConfigs.release
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core:1.12.0'
+    implementation 'androidx.webkit:webkit:1.9.0'
+}

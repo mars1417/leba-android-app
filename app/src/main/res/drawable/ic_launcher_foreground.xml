@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 圆形徽章底 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+    <!-- 乐吧"乐"字简写 - 抽象房屋形 -->
+    <path
+        android:fillColor="#4785A8"
+        android:pathData="M54,22L30,42v26h48V42L54,22z" />
+    <path
+        android:fillColor="#6DA8A0"
+        android:pathData="M40,58h28v16H40z" />
+</vector>

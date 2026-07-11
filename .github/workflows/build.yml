@@ -1,0 +1,57 @@
+name: Build APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.2"
+
+      - name: Generate keystore
+        run: |
+          keytool -genkey -v -keystore keystore.jks -alias leba \
+            -keyalg RSA -keysize 2048 -validity 9125 \
+            -storepass leba123 -keypass leba123 \
+            -dname "CN=leba, OU=leba, O=leba, L=Shanghai, ST=Shanghai, C=CN"
+
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version 8.2
+
+      - name: Build APK
+        run: ./gradlew assembleRelease
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/keystore.jks
+          KEYSTORE_PASSWORD: leba123
+          KEY_ALIAS: leba
+          KEY_PASSWORD: leba123
+
+      - name: Rename APK
+        run: mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/leba-center.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: "乐吧公益中心 v${{ github.run_number }}"
+          body: |
+            📱 乐吧公益中心 Android App
+
+            版本: v${{ github.run_number }}
+            四端入口: 机构管理端 · CRM · 家长端 · 课程报名
+
+            安装: 下载APK → 手机打开安装 → 允许通知
+          files: app/build/outputs/apk/release/leba-center.apk

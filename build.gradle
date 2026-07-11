@@ -1,0 +1,22 @@
+// build.gradle (Project level)
+buildscript {
+    ext {
+        compileSdkVersion = 34
+        minSdkVersion = 24
+        targetSdkVersion = 34
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.2.0'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
