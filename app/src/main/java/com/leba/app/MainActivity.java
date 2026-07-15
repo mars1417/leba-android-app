@@ -48,6 +48,8 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private int fallbackIndex = 0;
     private NotificationBridge notifBridge;
+    private String currentUpdateBase = null;
+    private boolean updateCheckDone = false;
 
     // 多入口URL，按优先级排列
     private static final String[] ENTRY_URLS = {
@@ -58,10 +60,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String CHANNEL_ID = "leba_notifications";
     private static final int NOTIFICATION_PERMISSION_CODE = 1001;
 
-    // 自动更新通过cpolar（国内可访问）
-    private static final String UPDATE_HOST = "https://6f3990ac.r23.cpolar.top";
-    private static final String CHECK_URL = UPDATE_HOST + "/api/apk/check";
-    private static final String DOWNLOAD_URL = UPDATE_HOST + "/api/apk/download";
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private AlertDialog progressDialog;
@@ -89,7 +87,6 @@ public class MainActivity extends AppCompatActivity {
         loadCurrentUrl();
 
         // 检查更新（后台线程）
-        checkForUpdate();
     }
 
     private void loadCurrentUrl() {
@@ -135,6 +132,20 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 injectNotifBridgeJS(view);
+
+                // 自动更新：从成功加载的URL提取host用于更新检查
+                if (currentUpdateBase == null && !updateCheckDone) {
+                    try {
+                        java.net.URL parsed = new java.net.URL(url);
+                        String host = parsed.getHost();
+                        if (host != null && !host.contains("github")) {
+                            int port = parsed.getPort();
+                            currentUpdateBase = parsed.getProtocol() + "://" + host;
+                            if (port > 0 && port != 443) currentUpdateBase += ":" + port;
+                        }
+                    } catch (Exception e) {}
+                    checkForUpdate();
+                }
             }
         });
 
@@ -165,10 +176,16 @@ public class MainActivity extends AppCompatActivity {
     private void checkForUpdate() {
         executor.execute(() -> {
             try {
+                if (updateCheckDone) return;
+                updateCheckDone = true;
                 int currentVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
                 Log.d("AutoUpdate", "Current versionCode: " + currentVer);
 
-                URL url = new URL(CHECK_URL);
+                String base = currentUpdateBase != null ? currentUpdateBase : "https://6f3990ac.r23.cpolar.top";
+                String checkUrl = base + "/api/apk/check";
+                Log.d("AutoUpdate", "Check URL: " + checkUrl);
+
+                URL url = new URL(checkUrl);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(8000);
                 conn.setReadTimeout(8000);
@@ -249,7 +266,8 @@ public class MainActivity extends AppCompatActivity {
                 File apkFile = new File(cacheDir, "leba-center.apk");
                 if (apkFile.exists()) apkFile.delete();
 
-                URL url = new URL(DOWNLOAD_URL);
+                String base2 = currentUpdateBase != null ? currentUpdateBase : "https://6f3990ac.r23.cpolar.top";
+                URL url = new URL(base2 + "/api/apk/download");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(15000);
                 conn.setReadTimeout(120000);
