@@ -1,20 +1,31 @@
+/**
+ * 乐吧公益中心 · Android WebView App
+ *
+ * 入口URL自动回退机制：
+ *   ① GP Pages主入口（海外/墙外用户直通）
+ *   ② cpolar隧道备用（国内用户/GP被墙时自动回退）
+ *
+ * 自动更新：通过cpolar隧道检查新版本 → 下载 → 覆盖安装
+ */
+
 package com.leba.app;
 
 import android.app.AlertDialog;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
-import android.view.ViewGroup;
+import android.webkit.SslErrorHandler;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceError;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
@@ -23,9 +34,6 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.NotificationCompat;
-import androidx.core.app.NotificationManagerCompat;
-import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -38,12 +46,20 @@ import java.util.concurrent.Executors;
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
+    private int fallbackIndex = 0;
     private NotificationBridge notifBridge;
-    private static final String GP_URL = "https://mars1417.github.io/lebacenter/";
+
+    // 多入口URL，按优先级排列
+    private static final String[] ENTRY_URLS = {
+        "https://mars1417.github.io/lebacenter/",   // 0: GP Pages（主入口）
+        "https://6f3990ac.r23.cpolar.top/"            // 1: cpolar隧道（国内备用）
+    };
+
     private static final String CHANNEL_ID = "leba_notifications";
     private static final int NOTIFICATION_PERMISSION_CODE = 1001;
-    // 自动更新：通过本地Flask服务器（cpolar穿透，国内可访问）
-    private static final String UPDATE_HOST = "https://3d27347f.r23.cpolar.top";
+
+    // 自动更新通过cpolar（国内可访问）
+    private static final String UPDATE_HOST = "https://6f3990ac.r23.cpolar.top";
     private static final String CHECK_URL = UPDATE_HOST + "/api/apk/check";
     private static final String DOWNLOAD_URL = UPDATE_HOST + "/api/apk/download";
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -64,16 +80,26 @@ public class MainActivity extends AppCompatActivity {
         webView = findViewById(R.id.webview);
         setupWebView();
 
-        // 注册JS桥接：页面JS→Android系统通知
         notifBridge = new NotificationBridge(this);
         webView.addJavascriptInterface(notifBridge, "AndroidNotif");
 
-        // 清除WebView缓存，确保看到最新GP页面
+        // 加载入口页（失败自动回退下一个URL）
         webView.clearCache(true);
-        webView.loadUrl(GP_URL + "?_t=" + System.currentTimeMillis());
+        fallbackIndex = 0;
+        loadCurrentUrl();
 
         // 检查更新（后台线程）
         checkForUpdate();
+    }
+
+    private void loadCurrentUrl() {
+        if (fallbackIndex >= ENTRY_URLS.length) {
+            Log.w("EntryUrl", "All entry URLs exhausted");
+            return;
+        }
+        String url = ENTRY_URLS[fallbackIndex] + "?_t=" + System.currentTimeMillis();
+        Log.d("EntryUrl", "Trying: " + url);
+        webView.loadUrl(url);
     }
 
     private void setupWebView() {
@@ -86,7 +112,23 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return false; // 所有链接在WebView内打开
+                return false;
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame()) {
+                    int errCode = error.getErrorCode();
+                    Log.w("EntryUrl", "Error loading " + request.getUrl() + " code=" + errCode);
+                    // 主框架加载失败 → 自动切下一个入口URL
+                    fallbackIndex++;
+                    loadCurrentUrl();
+                }
+            }
+
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                handler.proceed();
             }
 
             @Override
@@ -123,11 +165,9 @@ public class MainActivity extends AppCompatActivity {
     private void checkForUpdate() {
         executor.execute(() -> {
             try {
-                // 获取当前版本
                 int currentVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
                 Log.d("AutoUpdate", "Current versionCode: " + currentVer);
 
-                // 请求本地服务器版本信息
                 URL url = new URL(CHECK_URL);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(8000);
@@ -179,7 +219,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void downloadAndInstall() {
-        // 弹出进度条弹窗
         mainHandler.post(() -> {
             LinearLayout layout = new LinearLayout(this);
             layout.setPadding(60, 30, 60, 30);
@@ -221,7 +260,6 @@ public class MainActivity extends AppCompatActivity {
                 final String sizeStr = fileLength > 0
                     ? String.format("%.1f MB", fileLength / (1024f * 1024f))
                     : "未知大小";
-                Log.d("AutoUpdate", "Download size: " + fileLength);
 
                 try (InputStream is = conn.getInputStream();
                      FileOutputStream os = new FileOutputStream(apkFile)) {
@@ -232,11 +270,9 @@ public class MainActivity extends AppCompatActivity {
                     while ((n = is.read(buf)) != -1) {
                         os.write(buf, 0, n);
                         total += n;
-                        // 每200ms更新一次UI，避免频繁刷新
                         long now = System.currentTimeMillis();
                         if (fileLength > 0 && now - lastUpdate > 200) {
                             final int percent = (int) (total * 100 / fileLength);
-                            final long speed = total / Math.max(1, (now - System.currentTimeMillis() + 200));
                             lastUpdate = now;
                             mainHandler.post(() -> updateProgress(percent, sizeStr));
                         }
@@ -244,14 +280,10 @@ public class MainActivity extends AppCompatActivity {
                 }
                 conn.disconnect();
 
-                final long finalSize = apkFile.length();
-                Log.d("AutoUpdate", "Downloaded: " + finalSize + " bytes");
-
                 mainHandler.post(() -> {
                     if (progressDialog != null && progressDialog.isShowing()) {
                         progressDialog.dismiss();
                     }
-                    // 下载完成后立即安装（签名一致，支持覆盖安装）
                     installApk(apkFile);
                 });
             } catch (Exception e) {
@@ -288,15 +320,12 @@ public class MainActivity extends AppCompatActivity {
         startActivity(intent);
     }
 
-    /* 极简JSON解析（无Gson依赖） */
     private int extractInt(String json, String key) {
         String search = "\"" + key + "\":";
         int start = json.indexOf(search);
         if (start == -1) return 0;
         start += search.length();
-        // 跳过空格
         while (start < json.length() && json.charAt(start) == ' ') start++;
-        // 数字直到逗号或括号
         int end = start;
         while (end < json.length() && (Character.isDigit(json.charAt(end)) || json.charAt(end) == '-')) end++;
         try { return Integer.parseInt(json.substring(start, end)); } catch (NumberFormatException e) { return 0; }
@@ -311,7 +340,6 @@ public class MainActivity extends AppCompatActivity {
         return end == -1 ? null : json.substring(start, end);
     }
 
-    /* ===== 通知系统 ===== */
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
@@ -326,7 +354,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(
                     new String[]{android.Manifest.permission.POST_NOTIFICATIONS},
@@ -336,7 +364,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /* 注入JS：独立轮询通知API */
     private void injectNotifBridgeJS(WebView view) {
         String js =
             "(function(){" +
@@ -369,7 +396,6 @@ public class MainActivity extends AppCompatActivity {
             "  },30000);" +
             "})();";
         view.evaluateJavascript(js, null);
-        Log.d("NotifBridge", "JS injected into: " + view.getUrl());
     }
 
     @Override
