@@ -53,8 +53,8 @@ public class MainActivity extends AppCompatActivity {
 
     // 多入口URL，按优先级排列
     private static final String[] ENTRY_URLS = {
-        "https://mars1417.github.io/lebacenter/",   // 0: GP Pages（主入口）
-        "https://624a60f5.r18.vip.cpolar.cn/"            // 1: cpolar隧道（国内备用）
+        "https://mars1417.github.io/lebacenter/",   // 0: GP Pages（乐吧入口，HTTPS优先）
+        "https://639b13a9.r18.vip.cpolar.cn/"       // 1: cpolar隧道（国内备用）
     };
 
     private static final String CHANNEL_ID = "leba_notifications";
@@ -181,7 +181,7 @@ public class MainActivity extends AppCompatActivity {
                 int currentVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
                 Log.d("AutoUpdate", "Current versionCode: " + currentVer);
 
-                String base = currentUpdateBase != null ? currentUpdateBase : "https://624a60f5.r18.vip.cpolar.cn";
+                String base = currentUpdateBase != null ? currentUpdateBase : "https://639b13a9.r18.vip.cpolar.cn";
                 String checkUrl = base + "/api/apk/check";
                 Log.d("AutoUpdate", "Check URL: " + checkUrl);
 
@@ -266,7 +266,7 @@ public class MainActivity extends AppCompatActivity {
                 File apkFile = new File(cacheDir, "leba-center.apk");
                 if (apkFile.exists()) apkFile.delete();
 
-                String base2 = currentUpdateBase != null ? currentUpdateBase : "https://624a60f5.r18.vip.cpolar.cn";
+                String base2 = currentUpdateBase != null ? currentUpdateBase : "https://639b13a9.r18.vip.cpolar.cn";
                 URL url = new URL(base2 + "/api/apk/download");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(15000);
