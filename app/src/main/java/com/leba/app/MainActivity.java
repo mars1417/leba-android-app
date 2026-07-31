@@ -163,10 +163,33 @@ public class MainActivity extends AppCompatActivity {
                     uploadMessage.onReceiveValue(null);
                 }
                 uploadMessage = filePathCallback;
-                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-                intent.addCategory(Intent.CATEGORY_OPENABLE);
-                intent.setType("image/*");
-                startActivityForResult(Intent.createChooser(intent, "选择照片"), 1001);
+
+                // ✅ 使用网页 accept 属性动态生成 Intent（支持图片/视频/音频等所有类型）
+                // 旧代码写死 image/* 导致视频永远无法选择 —— 2026-07-31 修复
+                Intent intent;
+                try {
+                    intent = params.createIntent();
+                } catch (Exception e) {
+                    // 兜底：通用文件选择器
+                    intent = new Intent(Intent.ACTION_GET_CONTENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("*/*");
+                }
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                try {
+                    startActivityForResult(Intent.createChooser(intent, "选择文件"), 1001);
+                } catch (Exception e) {
+                    // 最后兜底：ACTION_GET_CONTENT 全类型
+                    if (uploadMessage != null) {
+                        uploadMessage.onReceiveValue(null);
+                        uploadMessage = null;
+                    }
+                    Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
+                    fallback.addCategory(Intent.CATEGORY_OPENABLE);
+                    fallback.setType("*/*");
+                    fallback.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*", "audio/*"});
+                    startActivityForResult(Intent.createChooser(fallback, "选择文件"), 1001);
+                }
                 return true;
             }
         });

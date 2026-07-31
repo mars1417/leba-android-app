@@ -6,7 +6,10 @@
     <!-- 通知（Android 13+） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 角标（国产ROM） -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- Android 13+ 媒体读取权限（读视频/图片必需）2026-07-31 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <!-- 自动更新APK安装 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
