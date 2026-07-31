@@ -328,7 +328,10 @@ public class MainActivity extends AppCompatActivity {
                             lastTime = now;
                             final String speedStr = formatSpeed(winBytes, winMs);
                             lastUpdate = now;
-                            mainHandler.post(() -> updateProgress(percent, sizeStr, speedStr, total, startTime));
+                            // 捕获当前total（lambda需要effectively final）
+                            final long fTotal = total;
+                            final long fStart = startTime;
+                            mainHandler.post(() -> updateProgress(percent, sizeStr, speedStr, fTotal, fStart));
                         }
                     }
                 }
