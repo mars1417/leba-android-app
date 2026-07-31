@@ -81,12 +81,11 @@ public class MainActivity extends AppCompatActivity {
         notifBridge = new NotificationBridge(this);
         webView.addJavascriptInterface(notifBridge, "AndroidNotif");
 
-        // 加载入口页（失败自动回退下一个URL）
+        // 方案B：启动先检查更新 → 无新版直接进入系统；有新版弹窗（立即更新/稍后）
+        // 2026-07-31 用户要求：打开APP优先更新，更新完再进系统
         webView.clearCache(true);
         fallbackIndex = 0;
-        loadCurrentUrl();
-
-        // 检查更新（后台线程）
+        checkForUpdate();
     }
 
     private void loadCurrentUrl() {
@@ -133,8 +132,8 @@ public class MainActivity extends AppCompatActivity {
                 super.onPageFinished(view, url);
                 injectNotifBridgeJS(view);
 
-                // 自动更新：从成功加载的URL提取host用于更新检查
-                if (currentUpdateBase == null && !updateCheckDone) {
+                // 从成功加载的URL提取host（供后续下载使用；更新检查已在启动时完成）
+                if (currentUpdateBase == null) {
                     try {
                         java.net.URL parsed = new java.net.URL(url);
                         String host = parsed.getHost();
@@ -144,7 +143,6 @@ public class MainActivity extends AppCompatActivity {
                             if (port > 0 && port != 443) currentUpdateBase += ":" + port;
                         }
                     } catch (Exception e) {}
-                    checkForUpdate();
                 }
             }
         });
@@ -242,9 +240,14 @@ public class MainActivity extends AppCompatActivity {
                 if (remoteVer > currentVer) {
                     String finalTag = versionName != null ? versionName : "v" + remoteVer;
                     mainHandler.post(() -> showUpdateDialog(finalTag));
+                } else {
+                    // 无新版 → 直接进入系统
+                    mainHandler.post(() -> loadCurrentUrl());
                 }
             } catch (Exception e) {
                 Log.d("AutoUpdate", "Check failed: " + e.getMessage());
+                // 检查失败（网络/服务器不可达）→ 直接进入系统，不阻塞
+                mainHandler.post(() -> loadCurrentUrl());
             }
         });
     }
@@ -252,9 +255,10 @@ public class MainActivity extends AppCompatActivity {
     private void showUpdateDialog(String tagName) {
         new AlertDialog.Builder(this)
             .setTitle("发现新版本 " + tagName)
-            .setMessage("是否下载更新？\n更新后重启即可使用最新版本。")
+            .setMessage("是否立即更新？\n更新后自动重启进入系统。")
             .setPositiveButton("立即更新", (dialog, which) -> downloadAndInstall())
-            .setNegativeButton("稍后再说", null)
+            .setNegativeButton("稍后再说", (dialog, which) -> loadCurrentUrl())
+            .setCancelable(false)
             .show();
     }
 
@@ -308,14 +312,23 @@ public class MainActivity extends AppCompatActivity {
                     int n;
                     long total = 0;
                     long lastUpdate = 0;
+                    long startTime = System.currentTimeMillis();
+                    long lastBytes = 0;
+                    long lastTime = startTime;
                     while ((n = is.read(buf)) != -1) {
                         os.write(buf, 0, n);
                         total += n;
                         long now = System.currentTimeMillis();
                         if (fileLength > 0 && now - lastUpdate > 200) {
                             final int percent = (int) (total * 100 / fileLength);
+                            // 真实网速: 窗口期字节差/时间差 (200ms采样)
+                            long winBytes = total - lastBytes;
+                            long winMs = now - lastTime;
+                            lastBytes = total;
+                            lastTime = now;
+                            final String speedStr = formatSpeed(winBytes, winMs);
                             lastUpdate = now;
-                            mainHandler.post(() -> updateProgress(percent, sizeStr));
+                            mainHandler.post(() -> updateProgress(percent, sizeStr, speedStr, total, startTime));
                         }
                     }
                 }
@@ -345,11 +358,32 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void updateProgress(int percent, String sizeStr) {
+    private void updateProgress(int percent, String sizeStr, String speedStr, long totalBytes, long startTime) {
         if (progressBar != null) progressBar.setProgress(percent);
         if (progressText != null) {
-            progressText.setText("已下载 " + percent + "%  /  总大小: " + sizeStr);
+            long elapsedMs = System.currentTimeMillis() - startTime;
+            String elapsedStr = formatElapsed(elapsedMs);
+            String doneStr = totalBytes > 0
+                ? String.format("%.1f MB", totalBytes / (1024f * 1024f)) + " / " + sizeStr
+                : sizeStr;
+            progressText.setText("已下载 " + percent + "%   " + doneStr + "\n"
+                + "⚡ " + speedStr + "   ⏱ " + elapsedStr);
         }
+    }
+
+    /** 真实网速格式化: B/s → KB/s → MB/s */
+    private String formatSpeed(long bytes, long ms) {
+        if (ms <= 0) return "计算中...";
+        double bps = bytes * 1000.0 / ms;
+        if (bps >= 1024 * 1024) return String.format("%.1f MB/s", bps / (1024 * 1024));
+        if (bps >= 1024) return String.format("%.0f KB/s", bps / 1024);
+        return String.format("%.0f B/s", bps);
+    }
+
+    /** 已用时间: mm:ss */
+    private String formatElapsed(long ms) {
+        long s = ms / 1000;
+        return String.format("%02d:%02d", s / 60, s % 60);
     }
 
     private void installApk(File apkFile) {
