@@ -50,6 +50,7 @@ public class MainActivity extends AppCompatActivity {
     private NotificationBridge notifBridge;
     private String currentUpdateBase = null;
     private boolean updateCheckDone = false;
+    private boolean skipUpdateDialog = false;
 
     // 多入口URL，按优先级排列
     private static final String[] ENTRY_URLS = {
@@ -91,11 +92,23 @@ public class MainActivity extends AppCompatActivity {
     private void loadCurrentUrl() {
         if (fallbackIndex >= ENTRY_URLS.length) {
             Log.w("EntryUrl", "All entry URLs exhausted");
+            loadErrorPage();
             return;
         }
         String url = ENTRY_URLS[fallbackIndex] + "?_t=" + System.currentTimeMillis();
         Log.d("EntryUrl", "Trying: " + url);
         webView.loadUrl(url);
+    }
+
+    /** 双入口都失败时显示友好错误页（2026-08-01 v30 天使E007建议） */
+    private void loadErrorPage() {
+        String html = "<html><body style='background:#f5f5f7;text-align:center;padding-top:120px;font-family:sans-serif;'>"
+            + "<div style='font-size:64px;'>⚠️</div>"
+            + "<h2 style='color:#1d1d1f;margin:16px 0 8px;'>网络连接失败</h2>"
+            + "<p style='color:#86868b;font-size:16px;margin-bottom:32px;'>请检查网络后重试</p>"
+            + "<a href='leba-retry://' style='display:inline-block;background:#007AFF;color:#fff;padding:12px 48px;border-radius:24px;text-decoration:none;font-size:16px;'>重试</a>"
+            + "</body></html>";
+        webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
     }
 
     private void setupWebView() {
@@ -108,6 +121,13 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                // 错误页重试按钮：leba-retry:// → 重置入口重新加载
+                String url = request.getUrl().toString();
+                if (url != null && url.startsWith("leba-retry://")) {
+                    fallbackIndex = 0;
+                    loadCurrentUrl();
+                    return true;
+                }
                 return false;
             }
 
@@ -116,9 +136,13 @@ public class MainActivity extends AppCompatActivity {
                 if (request.isForMainFrame()) {
                     int errCode = error.getErrorCode();
                     Log.w("EntryUrl", "Error loading " + request.getUrl() + " code=" + errCode);
-                    // 主框架加载失败 → 自动切下一个入口URL
+                    // 主框架加载失败 → 自动切下一个入口URL；全部耗尽 → 友好错误页
                     fallbackIndex++;
-                    loadCurrentUrl();
+                    if (fallbackIndex >= ENTRY_URLS.length) {
+                        loadErrorPage();
+                    } else {
+                        loadCurrentUrl();
+                    }
                 }
             }
 
@@ -137,7 +161,7 @@ public class MainActivity extends AppCompatActivity {
                     try {
                         java.net.URL parsed = new java.net.URL(url);
                         String host = parsed.getHost();
-                        if (host != null && !host.contains("github")) {
+                        if (host != null && !host.endsWith("github.io")) {
                             int port = parsed.getPort();
                             currentUpdateBase = parsed.getProtocol() + "://" + host;
                             if (port > 0 && port != 443) currentUpdateBase += ":" + port;
@@ -199,6 +223,11 @@ public class MainActivity extends AppCompatActivity {
             try {
                 if (updateCheckDone) return;
                 updateCheckDone = true;
+                if (skipUpdateDialog) {
+                    // 用户点了「本次不再提醒」→ 本次进程内不再检查弹窗
+                    mainHandler.post(() -> loadCurrentUrl());
+                    return;
+                }
                 int currentVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
                 Log.d("AutoUpdate", "Current versionCode: " + currentVer);
 
@@ -258,6 +287,10 @@ public class MainActivity extends AppCompatActivity {
             .setMessage("是否立即更新？\n更新后自动重启进入系统。")
             .setPositiveButton("立即更新", (dialog, which) -> downloadAndInstall())
             .setNegativeButton("稍后再说", (dialog, which) -> loadCurrentUrl())
+            .setNeutralButton("本次不再提醒", (dialog, which) -> {
+                skipUpdateDialog = true;
+                loadCurrentUrl();
+            })
             .setCancelable(false)
             .show();
     }
