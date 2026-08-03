@@ -23,9 +23,11 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.View;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceError;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
@@ -84,7 +86,9 @@ public class MainActivity extends AppCompatActivity {
 
         // 方案B：启动先检查更新 → 无新版直接进入系统；有新版弹窗（立即更新/稍后）
         // 2026-07-31 用户要求：打开APP优先更新，更新完再进系统
-        webView.clearCache(true);
+        // 2026-08-03 修复卡顿：不再clearCache(true)（会清掉视频缓存导致每次重下3.9MB），
+        //   页面用?_t=时间戳保证最新，视频文件走HTTP缓存自动复用
+        webView.clearHistory();
         fallbackIndex = 0;
         checkForUpdate();
     }
@@ -117,6 +121,15 @@ public class MainActivity extends AppCompatActivity {
         webView.getSettings().setDatabaseEnabled(true);
         webView.getSettings().setAllowFileAccess(true);
         webView.getSettings().setAllowContentAccess(true);
+        // 视频播放优化（2026-08-03 修复APK开机动画卡顿）：
+        // 1) 硬件加速解码（1080p视频WebView软解必卡）
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        // 2) 允许自动播放（无需用户手势）
+        webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        // 3) 渲染优先级高
+        webView.getSettings().setRenderPriority(WebSettings.RenderPriority.HIGH);
+        // 4) 缓存模式：默认（视频文件可被HTTP缓存，避免每次启动重下3.9MB）
+        webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
