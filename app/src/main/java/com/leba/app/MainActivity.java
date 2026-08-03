@@ -163,12 +163,12 @@ public class MainActivity extends AppCompatActivity {
                     MediaCodecList mcl = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
                     MediaFormat f = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 1080, 1920);
                     f.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh);
-                    f.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel40);
+                    f.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel4);
                     boolean highOk = mcl.findDecoderForFormat(f) != null;
                     if (highOk) return "high";
                     MediaFormat f2 = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 1080, 1920);
                     f2.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileMain);
-                    f2.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel40);
+                    f2.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel4);
                     boolean midOk = mcl.findDecoderForFormat(f2) != null;
                     return midOk ? "mid" : "low";
                 } catch (Exception e) {
