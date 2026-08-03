@@ -57,8 +57,11 @@ public class MainActivity extends AppCompatActivity {
     // 多入口URL，按优先级排列
     private static final String[] ENTRY_URLS = {
         "https://mars1417.github.io/lebacenter/",   // 0: GP Pages（乐吧入口，HTTPS优先）
-        "https://76ae250e.r23.cpolar.top/"       // 1: cpolar隧道（国内备用）
+        "https://754b0115.r23.cpolar.top/"       // 1: cpolar隧道（国内备用，2026-08-03更新）
     };
+    // 2026-08-03: 隧道地址动态化——启动时从GP拉取url.json获取当前隧道，不再写死
+    // 好处：cpolar免费版隧道重启域名会变，APK无需重新打包也能找到最新服务器
+    private static final String URL_JSON_ENDPOINT = "https://mars1417.github.io/lebacenter/url.json";
 
     private static final String CHANNEL_ID = "leba_notifications";
     private static final int NOTIFICATION_PERMISSION_CODE = 1001;
@@ -261,7 +264,15 @@ public class MainActivity extends AppCompatActivity {
                 int currentVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
                 Log.d("AutoUpdate", "Current versionCode: " + currentVer);
 
-                String base = currentUpdateBase != null ? currentUpdateBase : "https://76ae250e.r23.cpolar.top";
+                // 2026-08-03: 动态获取当前隧道地址（cpolar免费版域名会变，不再写死）
+                // 先从GP拉url.json拿最新地址，失败才用内置默认值
+                String base = currentUpdateBase;
+                if (base == null) {
+                    base = fetchCurrentTunnelUrl();
+                    if (base == null || base.isEmpty()) {
+                        base = "https://754b0115.r23.cpolar.top";
+                    }
+                }
                 String checkUrl = base + "/api/apk/check";
                 Log.d("AutoUpdate", "Check URL: " + checkUrl);
 
@@ -356,7 +367,13 @@ public class MainActivity extends AppCompatActivity {
                 File apkFile = new File(cacheDir, "leba-center.apk");
                 if (apkFile.exists()) apkFile.delete();
 
-                String base2 = currentUpdateBase != null ? currentUpdateBase : "https://76ae250e.r23.cpolar.top";
+                String base2 = currentUpdateBase;
+                if (base2 == null) {
+                    base2 = fetchCurrentTunnelUrl();
+                    if (base2 == null || base2.isEmpty()) {
+                        base2 = "https://754b0115.r23.cpolar.top";
+                    }
+                }
                 URL url = new URL(base2 + "/api/apk/download");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(15000);
@@ -459,6 +476,38 @@ public class MainActivity extends AppCompatActivity {
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivity(intent);
+    }
+
+    /**
+     * 2026-08-03: 动态获取当前cpolar隧道地址
+     * 从GP Pages拉取 url.json（gateway_proxy自愈时自动更新），拿到最新隧道
+     * cpolar免费版隧道重启域名会变，这样APK不用重新打包也能找到服务器
+     */
+    private String fetchCurrentTunnelUrl() {
+        try {
+            URL url = new URL(URL_JSON_ENDPOINT);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(6000);
+            conn.setReadTimeout(6000);
+            int code = conn.getResponseCode();
+            if (code != 200) { conn.disconnect(); return null; }
+            StringBuilder sb = new StringBuilder();
+            try (InputStream is = conn.getInputStream()) {
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = is.read(buf)) != -1) sb.append(new String(buf, 0, n));
+            }
+            conn.disconnect();
+            String json = sb.toString();
+            String u = extractString(json, "url");
+            if (u != null && u.startsWith("http") && u.length() > 10) {
+                Log.d("AutoUpdate", "Dynamic tunnel URL: " + u);
+                return u;
+            }
+        } catch (Exception e) {
+            Log.d("AutoUpdate", "fetchCurrentTunnelUrl failed: " + e.getMessage());
+        }
+        return null;
     }
 
     private int extractInt(String json, String key) {
