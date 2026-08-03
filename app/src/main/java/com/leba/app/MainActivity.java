@@ -57,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
     // 多入口URL，按优先级排列
     private static final String[] ENTRY_URLS = {
         "https://mars1417.github.io/lebacenter/",   // 0: GP Pages（乐吧入口，HTTPS优先）
-        "https://754b0115.r23.cpolar.top/"       // 1: cpolar隧道（国内备用，2026-08-03更新）
+        "https://69eb5999.r23.cpolar.top/"       // 1: cpolar隧道（国内备用，2026-08-03更新为活跃隧道）
     };
     // 2026-08-03: 隧道地址动态化——启动时从GP拉取url.json获取当前隧道，不再写死
     // 好处：cpolar免费版隧道重启域名会变，APK无需重新打包也能找到最新服务器
@@ -270,7 +270,7 @@ public class MainActivity extends AppCompatActivity {
                 if (base == null) {
                     base = fetchCurrentTunnelUrl();
                     if (base == null || base.isEmpty()) {
-                        base = "https://754b0115.r23.cpolar.top";
+                        base = "https://69eb5999.r23.cpolar.top";
                     }
                 }
                 String checkUrl = base + "/api/apk/check";
@@ -285,6 +285,8 @@ public class MainActivity extends AppCompatActivity {
                 if (code != 200) {
                     Log.d("AutoUpdate", "Server returned " + code);
                     conn.disconnect();
+                    // 2026-08-03 修复白屏：check失败也必须进系统，更新检查不能阻塞入口
+                    mainHandler.post(() -> loadCurrentUrl());
                     return;
                 }
 
@@ -302,6 +304,8 @@ public class MainActivity extends AppCompatActivity {
 
                 if (remoteVer == 0) {
                     Log.d("AutoUpdate", "Failed to parse version");
+                    // 2026-08-03 修复白屏：解析失败也必须进系统
+                    mainHandler.post(() -> loadCurrentUrl());
                     return;
                 }
 
@@ -371,7 +375,7 @@ public class MainActivity extends AppCompatActivity {
                 if (base2 == null) {
                     base2 = fetchCurrentTunnelUrl();
                     if (base2 == null || base2.isEmpty()) {
-                        base2 = "https://754b0115.r23.cpolar.top";
+                        base2 = "https://69eb5999.r23.cpolar.top";
                     }
                 }
                 URL url = new URL(base2 + "/api/apk/download");
