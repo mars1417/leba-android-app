@@ -183,6 +183,8 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 injectNotifBridgeJS(view);
+                // 2026-08-03 注入APK专属标记：网页JS用它区分APK环境（不用UA猜，微信UA也会误判）
+                view.evaluateJavascript("window.__isLebaApk = true;", null);
 
                 // 从成功加载的URL提取host（供后续下载使用；更新检查已在启动时完成）
                 if (currentUpdateBase == null) {
