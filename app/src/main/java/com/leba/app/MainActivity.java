@@ -97,6 +97,9 @@ public class MainActivity extends AppCompatActivity {
         // 2026-07-31 用户要求：打开APP优先更新，更新完再进系统
         // 2026-08-03 修复卡顿：不再clearCache(true)（会清掉视频缓存导致每次重下3.9MB），
         //   页面用?_t=时间戳保证最新，视频文件走HTTP缓存自动复用
+        // 2026-08-03 v38 修复第二次没动画：清缓存只清WebView页面缓存，不动内置assets视频。
+        //   旧页面缓存的JS可能选错视频源 → 动画消失。每次启动清一次保证加载最新入口页。
+        webView.clearCache(true);
         webView.clearHistory();
         fallbackIndex = 0;
         checkForUpdate();
@@ -108,7 +111,7 @@ public class MainActivity extends AppCompatActivity {
             loadErrorPage();
             return;
         }
-        String url = ENTRY_URLS[fallbackIndex] + "?_t=" + System.currentTimeMillis();
+        String url = ENTRY_URLS[fallbackIndex] + "?_t=" + System.currentTimeMillis() + "&apk=1";
         Log.d("EntryUrl", "Trying: " + url);
         webView.loadUrl(url);
     }
