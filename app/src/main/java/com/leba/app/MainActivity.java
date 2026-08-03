@@ -23,6 +23,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
+import android.media.MediaCodecInfo;
+import android.media.MediaCodecList;
+import android.media.MediaFormat;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceError;
@@ -150,6 +153,28 @@ public class MainActivity extends AppCompatActivity {
                 // 2026-08-03 v41修复：onPageFinished注入太晚（页面JS预加载已执行完→选错源）。
                 //   提前到onPageStarted注入，确保页面任何JS在读取标记前它已就绪。
                 view.evaluateJavascript("window.__isLebaApk = true;", null);
+                // 2026-08-03 v46设备分级：探测本机硬解能力注入档位，网页JS据此选内置视频
+                view.evaluateJavascript("window.__videoTier = \"" + detectVideoTier() + "\";", null);
+            }
+
+            /** v46: 探测H.264硬解能力 → 返回视频档位 high/mid/low（开机动画设备分级） */
+            private String detectVideoTier() {
+                try {
+                    MediaCodecList mcl = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
+                    MediaFormat f = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 1080, 1920);
+                    f.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh);
+                    f.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel40);
+                    boolean highOk = mcl.findDecoderForFormat(f) != null;
+                    if (highOk) return "high";
+                    MediaFormat f2 = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 1080, 1920);
+                    f2.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileMain);
+                    f2.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel40);
+                    boolean midOk = mcl.findDecoderForFormat(f2) != null;
+                    return midOk ? "mid" : "low";
+                } catch (Exception e) {
+                    Log.w("VideoTier", "detectVideoTier fallback mid: " + e.getMessage());
+                    return "mid";
+                }
             }
 
             @Override
