@@ -23,7 +23,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
-import android.view.View;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceError;
@@ -134,16 +133,25 @@ public class MainActivity extends AppCompatActivity {
         webView.getSettings().setAllowFileAccess(true);
         webView.getSettings().setAllowContentAccess(true);
         // 视频播放优化（2026-08-03 修复APK开机动画卡顿）：
-        // 1) 硬件加速解码（1080p视频WebView软解必卡）
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-        // 2) 允许自动播放（无需用户手势）
+        // 1) 允许自动播放（无需用户手势）
         webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
-        // 3) 渲染优先级高
+        // 2) 渲染优先级高
         webView.getSettings().setRenderPriority(WebSettings.RenderPriority.HIGH);
-        // 4) 缓存模式：默认（视频文件可被HTTP缓存，避免每次启动重下3.9MB）
+        // 3) 缓存模式：默认（视频文件可被HTTP缓存，避免每次启动重下3.9MB）
         webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
+        // 2026-08-03 v41修复黑屏：不再强制setLayerType(HARDWARE)！
+        //   强制硬件层在部分国产ROM上导致WebView视频surface合成冲突→画面黑屏但播放正常。
+        //   WebView默认自动硬件加速，无需手动setLayerType。
 
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                // 2026-08-03 v41修复：onPageFinished注入太晚（页面JS预加载已执行完→选错源）。
+                //   提前到onPageStarted注入，确保页面任何JS在读取标记前它已就绪。
+                view.evaluateJavascript("window.__isLebaApk = true;", null);
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 // 错误页重试按钮：leba-retry:// → 重置入口重新加载
