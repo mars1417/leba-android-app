@@ -69,6 +69,8 @@ public class MainActivity extends AppCompatActivity {
     private ProgressBar progressBar;
     private TextView progressText;
     private ValueCallback<Uri[]> uploadMessage;
+    // 2026-08-03 本地assets视频加载器（官方WebViewAssetLoader，支持Range/206媒体流）
+    private androidx.webkit.WebViewAssetLoader assetLoader;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,6 +81,10 @@ public class MainActivity extends AppCompatActivity {
         requestNotificationPermission();
 
         webView = findViewById(R.id.webview);
+        // 2026-08-03 初始化assetLoader：https://appassets.androidplatform.net/assets/ → APK内置assets/
+        assetLoader = new androidx.webkit.WebViewAssetLoader.Builder()
+                .addPathHandler("/assets/", new androidx.webkit.WebViewAssetLoader.AssetsPathHandler(this))
+                .build();
         setupWebView();
 
         notifBridge = new NotificationBridge(this);
@@ -144,24 +150,12 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             }
 
-            // 2026-08-03 本地高清视频拦截：网页JS把APK的视频src指向
-            // https://appassets.androidplatform.net/assets/intro/leba_intro_v.mp4
-            // 这里直接从APK内置assets读取 → 本地播放零下载零卡顿
+            // 2026-08-03 本地高清视频：官方WebViewAssetLoader（支持HTTP Range/206分段请求，
+            // MediaPlayer才能流式播放内置assets视频；手动拦截返回200整文件会被播放器拒绝）
             @Override
             public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                String url = request.getUrl().toString();
-                if (url != null && url.startsWith("https://appassets.androidplatform.net/assets/")) {
-                    try {
-                        String assetPath = url.substring("https://appassets.androidplatform.net/assets/".length());
-                        // 只拦截内置的intro视频，其他assets按需扩展
-                        if (assetPath.equals("intro/leba_intro_v.mp4")) {
-                            java.io.InputStream is = getAssets().open("intro/leba_intro_v.mp4");
-                            return new android.webkit.WebResourceResponse("video/mp4", "utf-8", is);
-                        }
-                    } catch (Exception e) {
-                        Log.w("LocalVideo", "assets读取失败: " + e.getMessage());
-                    }
-                }
+                android.webkit.WebResourceResponse resp = assetLoader.shouldInterceptRequest(request.getUrl());
+                if (resp != null) return resp;
                 return super.shouldInterceptRequest(view, request);
             }
 
