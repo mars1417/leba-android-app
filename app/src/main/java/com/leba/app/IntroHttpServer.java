@@ -39,7 +39,7 @@ import java.util.concurrent.Executors;
  */
 public class IntroHttpServer {
     private static final String TAG = "IntroServer";
-    private static final int MAX_VIDEO_BYTES = 12 * 1024 * 1024; // 12MB 上限保护
+    private static final int MAX_VIDEO_BYTES = 25 * 1024 * 1024; // 25MB 上限保护（v59: 12→25，放行17MB原始未压缩版）
 
     private final Context context;
     private final int port;
