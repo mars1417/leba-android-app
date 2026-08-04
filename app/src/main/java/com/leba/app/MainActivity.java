@@ -15,6 +15,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.AssetFileDescriptor;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
@@ -40,10 +41,14 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -196,10 +201,63 @@ public class MainActivity extends AppCompatActivity {
 
             // 2026-08-03 本地高清视频：官方WebViewAssetLoader（支持HTTP Range/206分段请求，
             // MediaPlayer才能流式播放内置assets视频；手动拦截返回200整文件会被播放器拒绝）
+            // 🔴 v52修复【Boss实测v51闪退跳登录】：
+            //   appassets在部分手机(国产ROM WebView)WebViewAssetLoader拦截失败 → video onerror → go()闪退。
+            //   file:// 直读又被Chromium安全策略拒绝(HTTPS页面禁加载file://媒体,错误4 URL safety check)。
+            //   终极方案：Java层【手动拦截】appassets URL → 直接从assets读流 + 完整Range/206支持，
+            //   不依赖WebViewAssetLoader，100%可控。assetLoader仍作第一尝试(兼容正常手机)。
             @Override
             public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                android.webkit.WebResourceResponse resp = assetLoader.shouldInterceptRequest(request.getUrl());
-                if (resp != null) return resp;
+                String url = request.getUrl().toString();
+                // 1) 先试官方 assetLoader（正常手机直接走这个）
+                try {
+                    android.webkit.WebResourceResponse resp = assetLoader.shouldInterceptRequest(request.getUrl());
+                    if (resp != null) return resp;
+                } catch (Exception e) {
+                    Log.w("LocalVideo", "assetLoader failed: " + e.getMessage());
+                }
+                // 2) 手动兜底：appassets URL → 本地assets读取 + Range/206
+                if (url != null && url.startsWith("https://appassets.androidplatform.net/assets/")) {
+                    try {
+                        String assetPath = url.substring("https://appassets.androidplatform.net/assets/".length());
+                        // 解析 Range 头（MediaPlayer 会发 bytes=0- 或 bytes=N- 分段请求）
+                        long start = 0;
+                        long end = -1;
+                        String range = request.getRequestHeaders().get("Range");
+                        if (range != null && range.startsWith("bytes=")) {
+                            String[] parts = range.substring(6).split("-");
+                            try { start = Long.parseLong(parts[0]); } catch (Exception ignore) {}
+                            if (parts.length > 1 && !parts[1].isEmpty()) {
+                                try { end = Long.parseLong(parts[1]); } catch (Exception ignore) {}
+                            }
+                        }
+                        // 打开 assets 文件
+                        AssetFileDescriptor afd = getAssets().openFd(assetPath);
+                        long fileLen = afd.getLength();
+                        if (end < 0 || end >= fileLen) end = fileLen - 1;
+                        long contentLen = end - start + 1;
+                        // 定位到 start 位置
+                        java.io.FileInputStream fis = new java.io.FileInputStream(afd.getFileDescriptor());
+                        long skipped = 0;
+                        while (skipped < start) {
+                            long s = fis.skip(start - skipped);
+                            if (s <= 0) break;
+                            skipped += s;
+                        }
+                        // 构造206响应（Range请求）或200（无Range）
+                        Map<String, String> headers = new HashMap<>();
+                        headers.put("Accept-Ranges", "bytes");
+                        headers.put("Access-Control-Allow-Origin", "*");
+                        headers.put("Content-Range", "bytes " + start + "-" + end + "/" + fileLen);
+                        if (range != null && range.startsWith("bytes=")) {
+                            return new android.webkit.WebResourceResponse("video/mp4", null, 206, "Partial Content", headers, fis);
+                        } else {
+                            return new android.webkit.WebResourceResponse("video/mp4", null, 200, "OK", headers, fis);
+                        }
+                    } catch (Exception e) {
+                        Log.w("LocalVideo", "manual intercept failed: " + e.getMessage());
+                    }
+                }
                 return super.shouldInterceptRequest(view, request);
             }
 
