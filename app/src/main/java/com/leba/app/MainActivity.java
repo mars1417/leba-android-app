@@ -135,6 +135,11 @@ public class MainActivity extends AppCompatActivity {
         webView.getSettings().setDatabaseEnabled(true);
         webView.getSettings().setAllowFileAccess(true);
         webView.getSettings().setAllowContentAccess(true);
+        // 🔴 v52修复【Boss实测v51闪退跳登录】：appassets在部分手机(国产ROM)WebViewAssetLoader
+        //   拦截失败→内置视频onerror→go()闪退。终极方案：放开file://直读android_asset，
+        //   JS里appassets失败自动切 file:///android_asset/ 本地直读，100%可靠不依赖拦截器
+        webView.getSettings().setAllowUniversalAccessFromFileURLs(true);
+        webView.getSettings().setAllowFileAccessFromFileURLs(true);
         // 视频播放优化（2026-08-03 修复APK开机动画卡顿）：
         // 1) 允许自动播放（无需用户手势）
         webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
