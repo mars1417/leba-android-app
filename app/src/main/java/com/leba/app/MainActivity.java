@@ -236,9 +236,11 @@ public class MainActivity extends AppCompatActivity {
                         long fileLen = afd.getLength();
                         if (end < 0 || end >= fileLen) end = fileLen - 1;
                         long contentLen = end - start + 1;
-                        // 🔴 v54修复【Boss实测Format error】：getFileDescriptor()是整个APK文件的fd，
-                        //   不是asset的！必须用 afd.getStartOffset() 跳到asset在APK内的实际偏移，
-                        //   否则MediaPlayer读到APK文件头(zip垃圾) → Format error！
+                        // 🔴 v55修复【Boss实测Format error根因】：getFileDescriptor()是整个APK文件的fd，
+                        //   必须用 afd.getStartOffset() 跳到asset实际偏移（v54已修），
+                        //   【且必须用LimitedInputStream严格截断长度】！MediaPlayer请求bytes=0-1023探测时，
+                        //   流只能返回1024字节——否则读到APK文件其余部分(混入其他文件数据) → Format error！
+                        //   官方WebViewAssetLoader内部就是LimitedInputStream截断，之前漏了这步。
                         java.io.FileInputStream fis = new java.io.FileInputStream(afd.getFileDescriptor());
                         long absOffset = afd.getStartOffset() + start;
                         long skipped = 0;
@@ -247,16 +249,17 @@ public class MainActivity extends AppCompatActivity {
                             if (s <= 0) break;
                             skipped += s;
                         }
+                        InputStream limited = new LimitedInputStream(fis, contentLen);
                         // 构造206响应（Range请求）或200（无Range）
                         Map<String, String> headers = new HashMap<>();
                         headers.put("Accept-Ranges", "bytes");
                         headers.put("Access-Control-Allow-Origin", "*");
-                        headers.put("Content-Range", "bytes " + start + "-" + end + "/" + fileLen);
                         headers.put("Content-Length", String.valueOf(contentLen));
                         if (range != null && range.startsWith("bytes=")) {
-                            return new android.webkit.WebResourceResponse("video/mp4", null, 206, "Partial Content", headers, fis);
+                            headers.put("Content-Range", "bytes " + start + "-" + end + "/" + fileLen);
+                            return new android.webkit.WebResourceResponse("video/mp4", null, 206, "Partial Content", headers, limited);
                         } else {
-                            return new android.webkit.WebResourceResponse("video/mp4", null, 200, "OK", headers, fis);
+                            return new android.webkit.WebResourceResponse("video/mp4", null, 200, "OK", headers, limited);
                         }
                     } catch (Exception e) {
                         Log.w("LocalVideo", "manual intercept failed: " + e.getMessage());
@@ -715,6 +718,37 @@ public class MainActivity extends AppCompatActivity {
             webView.goBack();
         } else {
             super.onBackPressed();
+        }
+    }
+
+    /** 🔴 v55: 严格限制读取长度的输入流——MediaPlayer Range请求只返回请求范围内的字节，
+     *  否则读到APK文件其余部分(混入其他文件数据) → Format error！
+     *  官方WebViewAssetLoader内部就是此类实现。 */
+    private static class LimitedInputStream extends java.io.FilterInputStream {
+        private long remaining;
+        LimitedInputStream(InputStream in, long maxLen) {
+            super(in);
+            remaining = maxLen;
+        }
+        @Override
+        public int read() throws IOException {
+            if (remaining <= 0) return -1;
+            int b = super.read();
+            if (b >= 0) remaining--;
+            return b;
+        }
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (remaining <= 0) return -1;
+            int n = super.read(b, off, (int) Math.min(len, remaining));
+            if (n > 0) remaining -= n;
+            return n;
+        }
+        @Override
+        public long skip(long n) throws IOException {
+            long s = super.skip(Math.min(n, remaining));
+            remaining -= s;
+            return s;
         }
     }
 }
