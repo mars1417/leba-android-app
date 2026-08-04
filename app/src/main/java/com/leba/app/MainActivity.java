@@ -236,11 +236,14 @@ public class MainActivity extends AppCompatActivity {
                         long fileLen = afd.getLength();
                         if (end < 0 || end >= fileLen) end = fileLen - 1;
                         long contentLen = end - start + 1;
-                        // 定位到 start 位置
+                        // 🔴 v54修复【Boss实测Format error】：getFileDescriptor()是整个APK文件的fd，
+                        //   不是asset的！必须用 afd.getStartOffset() 跳到asset在APK内的实际偏移，
+                        //   否则MediaPlayer读到APK文件头(zip垃圾) → Format error！
                         java.io.FileInputStream fis = new java.io.FileInputStream(afd.getFileDescriptor());
+                        long absOffset = afd.getStartOffset() + start;
                         long skipped = 0;
-                        while (skipped < start) {
-                            long s = fis.skip(start - skipped);
+                        while (skipped < absOffset) {
+                            long s = fis.skip(absOffset - skipped);
                             if (s <= 0) break;
                             skipped += s;
                         }
@@ -249,6 +252,7 @@ public class MainActivity extends AppCompatActivity {
                         headers.put("Accept-Ranges", "bytes");
                         headers.put("Access-Control-Allow-Origin", "*");
                         headers.put("Content-Range", "bytes " + start + "-" + end + "/" + fileLen);
+                        headers.put("Content-Length", String.valueOf(contentLen));
                         if (range != null && range.startsWith("bytes=")) {
                             return new android.webkit.WebResourceResponse("video/mp4", null, 206, "Partial Content", headers, fis);
                         } else {

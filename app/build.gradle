@@ -14,6 +14,12 @@ android {
         versionName "v" + (System.getenv('VERSION_CODE') ?: "99")
     }
 
+    // 🔴 v54: mp4 必须 noCompress！否则 getAssets().openFd() 会抛
+    //   "compressed" 异常 → 手动拦截失败 → 内置视频加载不了
+    aaptOptions {
+        noCompress "mp4"
+    }
+
     signingConfigs {
         release {
             storeFile file(System.getenv('KEYSTORE_PATH') ?: "${rootProject.rootDir}/keystore.jks")
