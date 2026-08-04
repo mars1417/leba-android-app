@@ -641,8 +641,7 @@ public class MainActivity extends AppCompatActivity {
                 File cacheDir = new File(getCacheDir(), "intro");
                 for (String name : names) {
                     try {
-                        String urlField = extractString(json, name);
-                        // url字段格式: {"url":"https://...","md5":"xxxx"}
+                        // 定位该视频的JSON块: {"intro_high.mp4":{"url":"...","md5":"..."}}
                         int urlIdx = json.indexOf("\"" + name + "\"");
                         if (urlIdx < 0) continue;
                         String block = json.substring(urlIdx);
@@ -686,21 +685,6 @@ public class MainActivity extends AppCompatActivity {
                 Log.w("IntroUpdate", "版本检查失败: " + e.getMessage());
             }
         });
-    }
-
-    /** 简单JSON字段提取: {"field":"value"} → value */
-    private String extractString(String json, String field) {
-        try {
-            int idx = json.indexOf("\"" + field + "\"");
-            if (idx < 0) return null;
-            int colon = json.indexOf(":", idx);
-            if (colon < 0) return null;
-            int q1 = json.indexOf("\"", colon);
-            if (q1 < 0) return null;
-            int q2 = json.indexOf("\"", q1 + 1);
-            if (q2 < 0) return null;
-            return json.substring(q1 + 1, q2);
-        } catch (Exception e) { return null; }
     }
 
     private String md5File(File f) {
