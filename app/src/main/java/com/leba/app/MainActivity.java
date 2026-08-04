@@ -58,6 +58,8 @@ public class MainActivity extends AppCompatActivity {
     private int fallbackIndex = 0;
     private NotificationBridge notifBridge;
     private String currentUpdateBase = null;
+    // 🔴 v56: 本地HTTP服务器（内置开场视频根治方案——appassets假域名在国产ROM MediaPlayer直连必挂）
+    private IntroHttpServer introServer;
     private boolean updateCheckDone = false;
     private boolean skipUpdateDialog = false;
 
@@ -91,6 +93,14 @@ public class MainActivity extends AppCompatActivity {
         requestNotificationPermission();
 
         webView = findViewById(R.id.webview);
+        // 🔴 v56: 启动本地HTTP服务器（127.0.0.1）——内置开场视频播放根治方案
+        //   appassets假域名在国产ROM MediaPlayer直连管线必挂(错误4 Format error)，
+        //   127.0.0.1真实地址+标准HTTP任何ROM都能播
+        introServer = new IntroHttpServer(this);
+        introServer.start();
+        // 🔴 v56: 增量更新——静默检查服务器intro-version.json，有新版视频下载到缓存目录
+        //   （本地服务器优先服务缓存 → 换视频=服务器更新=APK自动拉取=零重装，Boss要求不整包安装）
+        checkIntroVideoUpdate();
         // 2026-08-03 初始化assetLoader：https://appassets.androidplatform.net/assets/ → APK内置assets/
         assetLoader = new androidx.webkit.WebViewAssetLoader.Builder()
                 .addPathHandler("/assets/", new androidx.webkit.WebViewAssetLoader.AssetsPathHandler(this))
@@ -152,6 +162,12 @@ public class MainActivity extends AppCompatActivity {
         webView.getSettings().setRenderPriority(WebSettings.RenderPriority.HIGH);
         // 3) 缓存模式：默认（视频文件可被HTTP缓存，避免每次启动重下3.9MB）
         webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
+        // 🔴 v56: 页面是https，本地视频服务器是http://127.0.0.1 → 必须放行混合内容
+        //   （loopback地址在Chromium属可信源，但老WebView/国产ROM需显式放行）
+        webView.getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        // 🔴 v56: 明文流量放行127.0.0.1（Android 9+默认禁明文HTTP，本地服务器需要）
+        webView.getSettings().setAllowUniversalAccessFromFileURLs(true);
+        webView.getSettings().setAllowFileAccessFromFileURLs(true);
         // 2026-08-03 v41修复黑屏：不再强制setLayerType(HARDWARE)！
         //   强制硬件层在部分国产ROM上导致WebView视频surface合成冲突→画面黑屏但播放正常。
         //   WebView默认自动硬件加速，无需手动setLayerType。
@@ -165,6 +181,15 @@ public class MainActivity extends AppCompatActivity {
                 view.evaluateJavascript("window.__isLebaApk = true;", null);
                 // 2026-08-03 v46设备分级：探测本机硬解能力注入档位，网页JS据此选内置视频
                 view.evaluateJavascript("window.__videoTier = \"" + detectVideoTier() + "\";", null);
+                // 🔴 v56: 注入本地HTTP服务器地址——JS首选它播放内置视频(任何ROM都能播)
+                try {
+                    view.evaluateJavascript(
+                        "window.__introLocal = function(f){ return 'http://127.0.0.1:" + introServer.getPort() +
+                        "/intro/" + introServer.getToken() + "/' + f; };",
+                        null);
+                } catch (Exception e) {
+                    Log.w("IntroServer", "inject local url failed: " + e.getMessage());
+                }
             }
 
             /** v46: 探测H.264硬解能力 → 返回视频档位 high/mid/low（开机动画设备分级） */
@@ -589,6 +614,109 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * 🔴 v56: 增量更新（Boss要求：不整包重装，推送替换指定部分）
+     * 静默检查服务器 intro-version.json → 有新版视频下载到 cacheDir/intro/ →
+     * 本地HTTP服务器优先服务缓存目录 → 换视频=服务器更新=APK自动拉取=零重装！
+     * 对比本地记录(md5)跳过已是最新的文件，只下载变化的部分。
+     */
+    private void checkIntroVideoUpdate() {
+        executor.execute(() -> {
+            try {
+                String versionUrl = "https://mars1417.github.io/lebacenter/intro-version.json";
+                URL url = new URL(versionUrl);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(8000);
+                conn.setReadTimeout(8000);
+                int code = conn.getResponseCode();
+                if (code != 200) { conn.disconnect(); return; }
+                StringBuilder sb = new StringBuilder();
+                try (InputStream is = conn.getInputStream()) {
+                    byte[] buf = new byte[4096]; int n;
+                    while ((n = is.read(buf)) != -1) sb.append(new String(buf, 0, n));
+                }
+                conn.disconnect();
+                String json = sb.toString();
+                // 解析 intro_high/mid/low 的 url + md5
+                String[] names = {"intro_high.mp4", "intro_mid.mp4", "intro_low.mp4"};
+                File cacheDir = new File(getCacheDir(), "intro");
+                for (String name : names) {
+                    try {
+                        String urlField = extractString(json, name);
+                        // url字段格式: {"url":"https://...","md5":"xxxx"}
+                        int urlIdx = json.indexOf("\"" + name + "\"");
+                        if (urlIdx < 0) continue;
+                        String block = json.substring(urlIdx);
+                        String dlUrl = extractString(block, "url");
+                        String remoteMd5 = extractString(block, "md5");
+                        if (dlUrl == null || remoteMd5 == null) continue;
+                        File target = new File(cacheDir, name);
+                        // 已有缓存且md5一致 → 跳过（零下载）
+                        if (target.exists() && target.length() > 0) {
+                            String localMd5 = md5File(target);
+                            if (remoteMd5.equals(localMd5)) continue;
+                        }
+                        // 下载新视频到缓存目录（只更新变化的部分）
+                        URL dl = new URL(dlUrl);
+                        HttpURLConnection dc = (HttpURLConnection) dl.openConnection();
+                        dc.setConnectTimeout(10000);
+                        dc.setReadTimeout(20000);
+                        int dcode = dc.getResponseCode();
+                        if (dcode != 200) { dc.disconnect(); continue; }
+                        if (!cacheDir.exists()) cacheDir.mkdirs();
+                        File tmp = new File(cacheDir, name + ".tmp");
+                        try (InputStream dis = dc.getInputStream(); FileOutputStream fos = new FileOutputStream(tmp)) {
+                            byte[] buf = new byte[64 * 1024]; int n;
+                            while ((n = dis.read(buf)) != -1) fos.write(buf, 0, n);
+                        }
+                        dc.disconnect();
+                        String gotMd5 = md5File(tmp);
+                        if (remoteMd5.equals(gotMd5)) {
+                            if (target.exists()) target.delete();
+                            tmp.renameTo(target);
+                            Log.i("IntroUpdate", name + " 已更新 (md5=" + remoteMd5 + ")");
+                        } else {
+                            tmp.delete();
+                            Log.w("IntroUpdate", name + " md5不符,丢弃: " + gotMd5 + " != " + remoteMd5);
+                        }
+                    } catch (Exception e) {
+                        Log.w("IntroUpdate", name + " 更新失败: " + e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                Log.w("IntroUpdate", "版本检查失败: " + e.getMessage());
+            }
+        });
+    }
+
+    /** 简单JSON字段提取: {"field":"value"} → value */
+    private String extractString(String json, String field) {
+        try {
+            int idx = json.indexOf("\"" + field + "\"");
+            if (idx < 0) return null;
+            int colon = json.indexOf(":", idx);
+            if (colon < 0) return null;
+            int q1 = json.indexOf("\"", colon);
+            if (q1 < 0) return null;
+            int q2 = json.indexOf("\"", q1 + 1);
+            if (q2 < 0) return null;
+            return json.substring(q1 + 1, q2);
+        } catch (Exception e) { return null; }
+    }
+
+    private String md5File(File f) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            try (InputStream is = new FileInputStream(f)) {
+                byte[] buf = new byte[64 * 1024]; int n;
+                while ((n = is.read(buf)) != -1) md.update(buf, 0, n);
+            }
+            StringBuilder sb = new StringBuilder();
+            for (byte b : md.digest()) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) { return ""; }
+    }
+
+    /**
      * 2026-08-03: 动态获取当前cpolar隧道地址
      * 从GP Pages拉取 url.json（gateway_proxy自愈时自动更新），拿到最新隧道
      * cpolar免费版隧道重启域名会变，这样APK不用重新打包也能找到服务器
@@ -710,6 +838,13 @@ public class MainActivity extends AppCompatActivity {
             uploadMessage.onReceiveValue(results);
             uploadMessage = null;
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // 🔴 v56: 停止本地HTTP服务器，释放端口
+        if (introServer != null) introServer.stop();
     }
 
     @Override
